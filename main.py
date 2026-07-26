@@ -26,7 +26,7 @@ threading.Thread(target=run_web_server, daemon=True).start()
 TELEGRAM_BOT_TOKEN = "8988063424:AAHFF6svlMtLkEo6Layi_3JS1bnQ2KfRc2I"
 TELEGRAM_CHAT_ID = "8244530561"
 SYMBOL = "BTCUSDT"
-TIMEFRAME = "1m"  # 1 Dakikalık Periyot
+TIMEFRAME = "5m"  # 5 Dakikalık Periyot
 
 # Yeni Risk Ayarların (1:3 RR Mantığı)
 ATR_CARPANI = 1.5
