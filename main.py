@@ -26,7 +26,7 @@ threading.Thread(target=run_web_server, daemon=True).start()
 TELEGRAM_BOT_TOKEN = "8988063424:AAHFF6svlMtLkEo6Layi_3JS1bnQ2KfRc2I"
 TELEGRAM_CHAT_ID = "8244530561"
 SYMBOL = "BTCUSDT"
-TIMEFRAME = "1m"
+TIMEFRAME = "1m"  # 1 Dakikalık Test Periyodu
 
 ATR_CARPANI = 1
 RR_ORANI = 5
@@ -37,9 +37,10 @@ def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
-        requests.post(url, json=payload)
+        res = requests.post(url, json=payload)
+        print(f"📩 Telegram Yanıtı: {res.status_code} - {res.text}", flush=True)
     except Exception as e:
-        print("Telegram Gönderim Hatası:", e)
+        print("❌ Telegram Gönderim Hatası:", e, flush=True)
 
 def fetch_klines(symbol, interval, limit=300):
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
@@ -67,7 +68,7 @@ def calculate_strategy(df):
     
     return df
 
-print("🚀 TEEML Sinyal Botu Başlatıldı...")
+print("🚀 TEEML Sinyal Botu Başlatıldı...", flush=True)
 send_telegram("🚀 *TEEML Sinyal Botu Aktif!*\nParite: " + SYMBOL + "\nPeriyot: " + TIMEFRAME)
 
 while True:
@@ -118,6 +119,6 @@ while True:
                 last_processed_time = bar_time
                 
     except Exception as e:
-        print("Hata oluştu:", e)
+        print("❌ Hata oluştu:", e, flush=True)
         
     time.sleep(30)
