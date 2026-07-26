@@ -26,9 +26,9 @@ threading.Thread(target=run_web_server, daemon=True).start()
 TELEGRAM_BOT_TOKEN = "8988063424:AAHFF6svlMtLkEo6Layi_3JS1bnQ2KfRc2I"
 TELEGRAM_CHAT_ID = "8244530561"
 SYMBOL = "BTCUSDT"
-TIMEFRAME = "1m"  # 1 Dakikalık Test Periyodu
+TIMEFRAME = "1m"  # Test için 1m (İstediğinde 5m, 15m yapabilirsin)
 
-# Yeni Risk Ayarların
+# Risk Ayarların
 ATR_CARPANI = 1.0
 RR_ORANI = 5.0
 
@@ -44,28 +44,34 @@ def send_telegram(message):
         print("❌ Telegram Gönderim Hatası:", e, flush=True)
 
 def fetch_klines(symbol, interval, limit=300):
-    try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=10).json()
-        
-        if not isinstance(res, list):
-            print(f"⚠️ Binance Yanıtı Beklenen Format Değil: {res}", flush=True)
-            return pd.DataFrame()
+    # Binance Bölge Engelini Aşan Public Vision & Yedeği Sunucular
+    endpoints = [
+        f"https://data-api.binance.vision/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}",
+        f"https://api1.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}",
+        f"https://api2.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}",
+        f"https://api3.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    ]
+    
+    for url in endpoints:
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            res = requests.get(url, headers=headers, timeout=5).json()
+            if isinstance(res, list) and len(res) > 0:
+                df = pd.DataFrame(res, columns=[
+                    'time', 'open', 'high', 'low', 'close', 'volume',
+                    'close_time', 'qav', 'num_trades', 'taker_base_vol', 'taker_quote_vol', 'ignore'
+                ])
+                df['open'] = df['open'].astype(float)
+                df['high'] = df['high'].astype(float)
+                df['low'] = df['low'].astype(float)
+                df['close'] = df['close'].astype(float)
+                df['volume'] = df['volume'].astype(float)
+                return df
+        except Exception:
+            continue
             
-        df = pd.DataFrame(res, columns=[
-            'time', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'qav', 'num_trades', 'taker_base_vol', 'taker_quote_vol', 'ignore'
-        ])
-        df['open'] = df['open'].astype(float)
-        df['high'] = df['high'].astype(float)
-        df['low'] = df['low'].astype(float)
-        df['close'] = df['close'].astype(float)
-        df['volume'] = df['volume'].astype(float)
-        return df
-    except Exception as e:
-        print("⚠️ Veri Çekme Hatası:", e, flush=True)
-        return pd.DataFrame()
+    print("⚠️ Tüm Binance endpointleri başarısız oldu.", flush=True)
+    return pd.DataFrame()
 
 def calculate_strategy(df):
     df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
@@ -86,7 +92,6 @@ while True:
     try:
         df = fetch_klines(SYMBOL, TIMEFRAME)
         
-        # Veri kontrolü (Boşsa veya yetersizse atla)
         if df.empty or len(df) < 200:
             time.sleep(10)
             continue
