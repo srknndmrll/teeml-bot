@@ -2,18 +2,34 @@ import time
 import requests
 import pandas as pd
 import numpy as np
+import threading
+import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# --- RENDER $0 ÜCRETSİZ KATMAN İÇİN WEB SUNUCU ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"TEEML Bot Is Live!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_web_server, daemon=True).start()
 
 # ==========================================
 # 1. TEEML BOT AYARLARI
 # ==========================================
-TELEGRAM_BOT_TOKEN = "8988063424:AAHFF6svlMtLkEo6Layi_3JS1bnQ2KfRc2I"  # 1. Adımda kopyaladığın Bot Token
-TELEGRAM_CHAT_ID = "8244530561"      # 1. Adımda kopyaladığın Chat ID
-SYMBOL = "BTCUSDT"                              # Takip edilecek parite
-TIMEFRAME = "15m"                               # Grafik Zaman Dilimi (15m = 15 Dakika)
+TELEGRAM_BOT_TOKEN = "8988063424:AAHFF6svlMtLkEo6Layi_3JS1bnQ2KfRc2I"
+TELEGRAM_CHAT_ID = "8244530561"
+SYMBOL = "BTCUSDT"
+TIMEFRAME = "1m"
 
-# Risk Yönetimi Ayarların
-ATR_CARPANI = 1.5
-RR_ORANI = 2.0
+ATR_CARPANI = 1
+RR_ORANI = 5
 
 last_processed_time = None
 
