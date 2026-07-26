@@ -31,7 +31,7 @@ SYMBOLS = ["BTCUSDT", "PAXGUSDT", "EURUSDT"]  # BTC, Ons Altın, EUR/USD
 TIMEFRAME = "5m"  # 5 Dakikalık Periyot
 
 # Risk Ayarları (1:3 RR Mantığı)
-ATR_CARPANI = 1.5
+ATR_CARPANI = 1
 RR_ORANI = 3.0
 
 # Her Parite İçin Bağımsız Takip Hafızası
