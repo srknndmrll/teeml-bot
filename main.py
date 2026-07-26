@@ -26,18 +26,19 @@ threading.Thread(target=run_web_server, daemon=True).start()
 TELEGRAM_BOT_TOKEN = "8988063424:AAHFF6svlMtLkEo6Layi_3JS1bnQ2KfRc2I"
 TELEGRAM_CHAT_ID = "8244530561"
 SYMBOL = "BTCUSDT"
-TIMEFRAME = "1m"
+TIMEFRAME = "1m"  # 1 Dakikalık Periyot
 
-# Risk Ayarların
-ATR_CARPANI = 1.0
-RR_ORANI = 5.0
+# Yeni Risk Ayarların (1:3 RR Mantığı)
+ATR_CARPANI = 1.5
+RR_ORANI = 3.0
 
-# İşlem Takip Değişkenleri (Hafıza)
+# İşlem Takip Değişkenleri
 active_position = None  # None, 'LONG', 'SHORT'
 entry_price = 0.0
 tp_price = 0.0
 sl_price = 0.0
 last_processed_time = None
+cooldown_until_bar = None
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -74,23 +75,45 @@ def fetch_klines(symbol, interval, limit=300):
         except Exception:
             continue
             
-    print("⚠️ Tüm Binance endpointleri başarısız oldu.", flush=True)
     return pd.DataFrame()
 
 def calculate_strategy(df):
-    df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
+    # ----------------------------------------------------
+    # HEİKİN ASHİ MUM HESAPLAMASI
+    # ----------------------------------------------------
+    ha_close = (df['open'] + df['high'] + df['low'] + df['close']) / 4
+    ha_open = np.zeros(len(df))
+    
+    # İlk mum için başlangıç Heikin-Ashi değeri
+    ha_open[0] = (df['open'].iloc[0] + df['close'].iloc[0]) / 2
+    for i in range(1, len(df)):
+        ha_open[i] = (ha_open[i-1] + ha_close.iloc[i-1]) / 2
+        
+    ha_high = np.maximum(df['high'], np.maximum(ha_open, ha_close))
+    ha_low = np.minimum(df['low'], np.minimum(ha_open, ha_close))
+    
+    df['ha_open'] = ha_open
+    df['ha_close'] = ha_close
+    df['ha_high'] = ha_high
+    df['ha_low'] = ha_low
+
+    # ----------------------------------------------------
+    # İNDİKATÖRLER (Heikin-Ashi Verileri İle)
+    # ----------------------------------------------------
+    df['ema200'] = df['ha_close'].ewm(span=200, adjust=False).mean()
     df['vol_sma20'] = df['volume'].rolling(window=20).mean()
     
-    high_low = df['high'] - df['low']
-    high_close = (df['high'] - df['close'].shift()).abs()
-    low_close = (df['low'] - df['close'].shift()).abs()
+    # ATR Hesaplaması (Heikin-Ashi mumlarına göre)
+    high_low = df['ha_high'] - df['ha_low']
+    high_close = (df['ha_high'] - df['ha_close'].shift()).abs()
+    low_close = (df['ha_low'] - df['ha_close'].shift()).abs()
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     df['atr14'] = tr.rolling(window=14).mean()
     
     return df
 
-print("🚀 TEEML Akıllı Pozisyon Takip Botu Başlatıldı...", flush=True)
-send_telegram("🚀 *TEEML Sinyal Botu Aktif!*\nParite: " + SYMBOL + "\nPeriyot: " + TIMEFRAME)
+print("🚀 TEEML Heikin-Ashi Sinyal Botu Başlatıldı...", flush=True)
+send_telegram("🚀 *TEEML Sinyal Botu Aktif!*\nMod: Heikin-Ashi\nParite: " + SYMBOL + "\nPeriyot: " + TIMEFRAME)
 
 while True:
     try:
@@ -106,19 +129,18 @@ while True:
         current_high = current_candle['high']
         current_low = current_candle['low']
         
-        # ----------------------------------------------------
         # 1. AKTİF POZİSYON KONTROLÜ (TP / SL ULAŞILDI MI?)
-        # ----------------------------------------------------
         if active_position == 'LONG':
             if current_high >= tp_price:
                 msg = f"🎯 *BAŞARILI: KAR AL (TP) OLUNDU!* 🟢\n\n" \
                       f"*Parite:* {SYMBOL}\n" \
                       f"*Giriş Fiyatı:* {entry_price:.2f}\n" \
-                      f"*Hedef TP:* {tp_price:.2f}\n" \
+                      f"*Hedef TP (1:3):* {tp_price:.2f}\n" \
                       f"*Gerçekleşen Yüksek:* {current_high:.2f}\n\n" \
-                      f"✅ *Pozisyon kârla kapatıldı. Yeni sinyal taranıyor...*"
+                      f"✅ *Pozisyon kârla kapatıldı. Yeni Heikin-Ashi sinyali taranıyor...*"
                 send_telegram(msg)
-                active_position = None  # Pozisyonu kapat, yeni sinyale izin ver
+                active_position = None
+                cooldown_until_bar = current_candle['time']
                 
             elif current_low <= sl_price:
                 msg = f"🛑 *BAŞARISIZ: ZARAR KES (SL) OLUNDU!* 🔴\n\n" \
@@ -126,20 +148,22 @@ while True:
                       f"*Giriş Fiyatı:* {entry_price:.2f}\n" \
                       f"*Stop SL:* {sl_price:.2f}\n" \
                       f"*Gerçekleşen Düşük:* {current_low:.2f}\n\n" \
-                      f"⚠️ *Pozisyon zararla kapatıldı. Yeni sinyal taranıyor...*"
+                      f"⚠️ *Pozisyon zararla kapatıldı. Yeni Heikin-Ashi sinyali taranıyor...*"
                 send_telegram(msg)
-                active_position = None  # Pozisyonu kapat, yeni sinyale izin ver
+                active_position = None
+                cooldown_until_bar = current_candle['time']
 
         elif active_position == 'SHORT':
             if current_low <= tp_price:
                 msg = f"🎯 *BAŞARILI: KAR AL (TP) OLUNDU!* 🟢\n\n" \
                       f"*Parite:* {SYMBOL}\n" \
                       f"*Giriş Fiyatı:* {entry_price:.2f}\n" \
-                      f"*Hedef TP:* {tp_price:.2f}\n" \
+                      f"*Hedef TP (1:3):* {tp_price:.2f}\n" \
                       f"*Gerçekleşen Düşük:* {current_low:.2f}\n\n" \
-                      f"✅ *Pozisyon kârla kapatıldı. Yeni sinyal taranıyor...*"
+                      f"✅ *Pozisyon kârla kapatıldı. Yeni Heikin-Ashi sinyali taranıyor...*"
                 send_telegram(msg)
-                active_position = None  # Pozisyonu kapat, yeni sinyale izin ver
+                active_position = None
+                cooldown_until_bar = current_candle['time']
                 
             elif current_high >= sl_price:
                 msg = f"🛑 *BAŞARISIZ: ZARAR KES (SL) OLUNDU!* 🔴\n\n" \
@@ -147,58 +171,61 @@ while True:
                       f"*Giriş Fiyatı:* {entry_price:.2f}\n" \
                       f"*Stop SL:* {sl_price:.2f}\n" \
                       f"*Gerçekleşen Yüksek:* {current_high:.2f}\n\n" \
-                      f"⚠️ *Pozisyon zararla kapatıldı. Yeni sinyal taranıyor...*"
+                      f"⚠️ *Pozisyon zararla kapatıldı. Yeni Heikin-Ashi sinyali taranıyor...*"
                 send_telegram(msg)
-                active_position = None  # Pozisyonu kapat, yeni sinyale izin ver
+                active_position = None
+                cooldown_until_bar = current_candle['time']
 
-        # ----------------------------------------------------
-        # 2. YENİ SİNYAL TARAMASI (Sadece Aktif Pozisyon Yoksa)
-        # ----------------------------------------------------
+        # 2. YENİ HEİKİN-ASHİ SİNYAL TARAMASI
         if active_position is None:
             last_closed_bar = df.iloc[-2]
             bar_time = last_closed_bar['time']
             
-            if bar_time != last_processed_time:
-                close = last_closed_bar['close']
-                open_p = last_closed_bar['open']
+            if bar_time != last_processed_time and bar_time != cooldown_until_bar:
+                # Heikin-Ashi Değerleri
+                ha_close = last_closed_bar['ha_close']
+                ha_open = last_closed_bar['ha_open']
+                real_close = last_closed_bar['close'] # Borsa Gerçek Giriş Fiyatı
+                
                 ema = last_closed_bar['ema200']
                 vol = last_closed_bar['volume']
                 vol_sma = last_closed_bar['vol_sma20']
                 atr = last_closed_bar['atr14']
                 
-                long_sart = (close > ema) and (vol > vol_sma) and (close > open_p)
-                short_sart = (close < ema) and (vol > vol_sma) and (close < open_p)
+                # Heikin-Ashi Trend & Mum Şartı
+                long_sart = (ha_close > ema) and (vol > vol_sma) and (ha_close > ha_open)
+                short_sart = (ha_close < ema) and (vol > vol_sma) and (ha_close < ha_open)
                 
                 if long_sart:
                     stop_mesafesi = atr * ATR_CARPANI
-                    entry_price = close
+                    entry_price = real_close
                     sl_price = entry_price - stop_mesafesi
                     tp_price = entry_price + (stop_mesafesi * RR_ORANI)
                     active_position = 'LONG'
                     last_processed_time = bar_time
                     
-                    msg = f"🟢 *TEEML YENİ AL SİNYALİ*\n\n" \
+                    msg = f"🟢 *TEEML YENİ AL SİNYALİ (Heikin-Ashi)*\n\n" \
                           f"*Parite:* {SYMBOL}\n" \
                           f"*Giriş Fiyatı:* {entry_price:.2f}\n" \
-                          f"*Kar Al (TP):* {tp_price:.2f}\n" \
+                          f"*Kar Al (TP 1:3):* {tp_price:.2f}\n" \
                           f"*Zarar Kes (SL):* {sl_price:.2f}\n\n" \
-                          f"⏳ *İşlem canlı takip ediliyor. TP veya SL olana kadar yeni sinyal atılmayacak.*"
+                          f"⏳ *İşlem canlı takip ediliyor. TP/SL olana kadar yeni sinyal atılmayacak.*"
                     send_telegram(msg)
                     
                 elif short_sart:
                     stop_mesafesi = atr * ATR_CARPANI
-                    entry_price = close
+                    entry_price = real_close
                     sl_price = entry_price + stop_mesafesi
                     tp_price = entry_price - (stop_mesafesi * RR_ORANI)
                     active_position = 'SHORT'
                     last_processed_time = bar_time
                     
-                    msg = f"🔴 *TEEML YENİ SAT SİNYALİ*\n\n" \
+                    msg = f"🔴 *TEEML YENİ SAT SİNYALİ (Heikin-Ashi)*\n\n" \
                           f"*Parite:* {SYMBOL}\n" \
                           f"*Giriş Fiyatı:* {entry_price:.2f}\n" \
-                          f"*Kar Al (TP):* {tp_price:.2f}\n" \
+                          f"*Kar Al (TP 1:3):* {tp_price:.2f}\n" \
                           f"*Zarar Kes (SL):* {sl_price:.2f}\n\n" \
-                          f"⏳ *İşlem canlı takip ediliyor. TP veya SL olana kadar yeni sinyal atılmayacak.*"
+                          f"⏳ *İşlem canlı takip ediliyor. TP/SL olana kadar yeni sinyal atılmayacak.*"
                     send_telegram(msg)
 
     except Exception as e:
