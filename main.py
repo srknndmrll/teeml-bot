@@ -28,8 +28,9 @@ TELEGRAM_CHAT_ID = "8244530561"
 SYMBOL = "BTCUSDT"
 TIMEFRAME = "1m"  # 1 Dakikalık Test Periyodu
 
-ATR_CARPANI = 1
-RR_ORANI = 5
+# Yeni Risk Ayarların
+ATR_CARPANI = 1.0
+RR_ORANI = 5.0
 
 last_processed_time = None
 
@@ -43,18 +44,28 @@ def send_telegram(message):
         print("❌ Telegram Gönderim Hatası:", e, flush=True)
 
 def fetch_klines(symbol, interval, limit=300):
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    res = requests.get(url).json()
-    df = pd.DataFrame(res, columns=[
-        'time', 'open', 'high', 'low', 'close', 'volume',
-        'close_time', 'qav', 'num_trades', 'taker_base_vol', 'taker_quote_vol', 'ignore'
-    ])
-    df['open'] = df['open'].astype(float)
-    df['high'] = df['high'].astype(float)
-    df['low'] = df['low'].astype(float)
-    df['close'] = df['close'].astype(float)
-    df['volume'] = df['volume'].astype(float)
-    return df
+    try:
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=10).json()
+        
+        if not isinstance(res, list):
+            print(f"⚠️ Binance Yanıtı Beklenen Format Değil: {res}", flush=True)
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(res, columns=[
+            'time', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'qav', 'num_trades', 'taker_base_vol', 'taker_quote_vol', 'ignore'
+        ])
+        df['open'] = df['open'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        df['volume'] = df['volume'].astype(float)
+        return df
+    except Exception as e:
+        print("⚠️ Veri Çekme Hatası:", e, flush=True)
+        return pd.DataFrame()
 
 def calculate_strategy(df):
     df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
@@ -74,6 +85,12 @@ send_telegram("🚀 *TEEML Sinyal Botu Aktif!*\nParite: " + SYMBOL + "\nPeriyot:
 while True:
     try:
         df = fetch_klines(SYMBOL, TIMEFRAME)
+        
+        # Veri kontrolü (Boşsa veya yetersizse atla)
+        if df.empty or len(df) < 200:
+            time.sleep(10)
+            continue
+            
         df = calculate_strategy(df)
         
         last_bar = df.iloc[-2]
@@ -121,4 +138,4 @@ while True:
     except Exception as e:
         print("❌ Hata oluştu:", e, flush=True)
         
-    time.sleep(30)
+    time.sleep(10)
